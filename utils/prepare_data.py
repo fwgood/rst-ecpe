@@ -118,7 +118,7 @@ def load_data_pair(input_file, word_idx, max_doc_len = 75, max_sen_len = 45):
                     y_pair_tmp[i*max_doc_len+j][0] = 1; y_pair_tmp[i*max_doc_len+j][1] = 0
                 # Find the distance between the clauses, and use the same embedding beyond 10 clauses
                 distance_tmp[i*max_doc_len+j] = min(max(j-i+100, 90), 110)
-        adj_original = np.array(adj_raw[doc_id - 1])
+        adj_original = np.array(adj_raw[doc_id - 1],dtype='float32')
         adj_temp = np.pad(adj_original,[0,max_doc_len - adj_original.shape[0]],mode='constant',constant_values=0)
         y_position.append(y_position_tmp)
         y_cause.append(y_cause_tmp)
@@ -136,4 +136,4 @@ def load_data_pair(input_file, word_idx, max_doc_len = 75, max_sen_len = 45):
         print('{}.shape {}'.format( var, eval(var).shape ))
     print('n_cut {}'.format(n_cut))
     print('load data done!\n')
-    return y_position, y_cause, y_pair, x, sen_len, doc_len, distance, adj.float()
+    return y_position, y_cause, y_pair, x, sen_len, doc_len, distance, adj
