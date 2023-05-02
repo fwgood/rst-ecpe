@@ -6,8 +6,8 @@ import torch
 from torch import nn
 from torch import optim
 from torch.nn import functional as F
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = "cpu"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = "cpu"
 
 ############################################ EMBEDDING LOOKUP ################################################
 def embedding_lookup(word_embedding, x):

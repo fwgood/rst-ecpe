@@ -8,8 +8,8 @@ from torch.nn import functional as F
 from utils.funcs import *
 from utils.prepare_data import *
 from models.gcn import GraphConvolution
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = "cpu"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = "cpu"
 
 ############################################ FLAGS ############################################################
 train_file_path = './data_combine_eng/clause_keywords.csv'          # clause keyword file
@@ -176,7 +176,7 @@ def train_and_eval(Model, pos_cause_criterion, pair_criterion, optimizer):
                 tr_true_y_pair,tr_adj_batch, tr_distance_batch = train
                 Model.train()
                 tr_pred_y_pos, tr_pred_y_cause, tr_pred_y_pair = Model(embedding_lookup(word_embedding, \
-                tr_x_batch), embedding_lookup(pos_embedding, tr_distance_batch),tr_adj_batch)
+                tr_x_batch), embedding_lookup(pos_embedding, tr_distance_batch),tr_adj_batch.to(device))
                 ############################## LOSS FUNCTION AND OPTIMIZATION ##############################
                 loss = pos_cause_criterion(tr_true_y_pos, tr_pred_y_pos, tr_doc_len_batch)*pos + \
                 pos_cause_criterion(tr_true_y_cause, tr_pred_y_cause, tr_doc_len_batch)*cause + \
@@ -202,7 +202,7 @@ def train_and_eval(Model, pos_cause_criterion, pair_criterion, optimizer):
             with torch.no_grad():
                 Model.eval()
                 val_pred_y_pos, val_pred_y_cause, val_pred_y_pair = Model(embedding_lookup(word_embedding, \
-                val_x), embedding_lookup(pos_embedding, val_distance), val_adj)
+                val_x), embedding_lookup(pos_embedding, val_distance), val_adj.to(device))
 
                 loss = pos_cause_criterion(val_y_position, val_pred_y_pos, val_doc_len)*pos + \
                 pos_cause_criterion(val_y_cause, val_pred_y_cause, val_doc_len)*cause + \
@@ -283,7 +283,7 @@ def main():
     x = torch.rand([batch_size, max_doc_len, max_sen_len, embedding_dim]).to(device)
     distance = torch.rand([batch_size, max_doc_len * max_doc_len, embedding_dim_pos]).to(device)
     adj = torch.zeros([batch_size, max_doc_len,  max_doc_len])
-    pred_pos, pred_cause, pred_pair = Model(x, distance,adj)
+    pred_pos, pred_cause, pred_pair = Model(x, distance,adj.to(device))
     print("Random i/o shapes x: {}, distance: {}, y_pos: {}, y_cause: {}, y_pair: {}".format(
         x.shape, distance.shape, pred_pos.shape, pred_cause.shape, pred_pair.shape))
     pos_cause_criterion = ce_loss_aux(); pair_criterion = ce_loss_pair(diminish_factor)
