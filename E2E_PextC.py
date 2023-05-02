@@ -7,7 +7,9 @@ from torch import optim
 from torch.nn import functional as F
 from utils.funcs import *
 from utils.prepare_data import *
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from models.gcn import GraphConvolution
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = "cpu"
 
 ############################################ FLAGS ############################################################
 train_file_path = './data_combine_eng/clause_keywords.csv'          # clause keyword file
@@ -52,6 +54,8 @@ class E2E_PextC(nn.Module):
         self.cause_bilstm = nn.LSTM(2*n_hidden, n_hidden, batch_first = True, bidirectional = True)
         self.pos_bilstm = nn.LSTM(2*n_hidden + n_class, n_hidden, batch_first = True, bidirectional = True)
         self.attention = Attention(n_hidden, sen_len)
+        self.gc1 = GraphConvolution(2 * n_hidden,2 * n_hidden)
+        self.gc2 = GraphConvolution(2 * n_hidden,2 * n_hidden)
 
     def get_clause_embedding(self, x):
         '''
@@ -67,37 +71,40 @@ class E2E_PextC(nn.Module):
         # s is of shape (batch_size, max_doc_len, 2 * n_hidden)
         return s
 
-    def get_emotion_prediction(self, x):
+    def get_emotion_prediction(self, x, adj):
         '''
         input shape: [batch_size, doc_len, 2 * n_hidden + n_class]
         output(s) shape: [batch_size, doc_len, 2 * n_hidden], [batch_size, doc_len, n_class]
         '''
         x_context, hidden_states = self.pos_bilstm(x.float())
+        x_context_gc = self.gc1(x_context,adj)
+
         # x_context is of shape (batch_size, max_doc_len, 2 * n_hidden)
-        x = x_context.reshape(-1, 2 * self.n_hidden)
+        x = x_context_gc.reshape(-1, 2 * self.n_hidden)
         x = self.dropout2(x)
         # x is of shape (batch_size * max_doc_len, 2 * n_hidden)
         pred_pos = F.softmax(self.pos_linear(x), dim = -1)
         # pred_pos is of shape (batch_size * max_doc_len, n_class)
         pred_pos = pred_pos.reshape(-1, self.doc_len, self.n_class)
         # pred_pos is of shape (batch_size * max_doc_len, n_class)
-        return x_context, pred_pos
+        return x_context_gc, pred_pos
 
-    def get_cause_prediction(self, x):
+    def get_cause_prediction(self, x, adj):
         '''
         input shape: [batch_size, doc_len, 2 * n_hidden]
         output(s) shape: [batch_size, doc_len, 2 * n_hidden], [batch_size, doc_len, n_class]
         '''
         x_context, hidden_states = self.cause_bilstm(x.float())
+        x_context_gc = self.gc1(x_context,adj)
         # x_context is of shape (batch_size, max_doc_len, 2 * n_hidden)
-        x = x_context.reshape(-1, 2 * self.n_hidden)
+        x = x_context_gc.reshape(-1, 2 * self.n_hidden)
         x = self.dropout2(x)
         # x is of shape (batch_size * max_doc_len, 2 * n_hidden)
         pred_cause = F.softmax(self.cause_linear(x), dim = -1)
         # pred_pos is of shape (batch_size * max_doc_len, n_class)
         pred_cause = pred_cause.reshape(-1, self.doc_len, self.n_class)
         # pred_pos is of shape (batch_size * max_doc_len, n_class)
-        return x_context, pred_cause
+        return x_context_gc, pred_cause
 
     def get_pair_prediction(self, x1, x2, distance):
         '''
@@ -118,7 +125,7 @@ class E2E_PextC(nn.Module):
         # pred_pair is of shape (batch_size, max_doc_len * max_doc_len, n_class)
         return pred_pair
 
-    def forward(self, x, distance):
+    def forward(self, x, distance,adj):
         '''
         input(s) shape: [batch_size, doc_len, sen_len, embedding_dim], 
                         [batch_size, doc_len * doc_len, embedding_dim_pos]
@@ -126,9 +133,9 @@ class E2E_PextC(nn.Module):
                          [batch_size, doc_len * doc_len, n_class]
         '''
         s = self.get_clause_embedding(x)
-        x_cause, pred_cause = self.get_cause_prediction(s)
+        x_cause, pred_cause = self.get_cause_prediction(s, adj)
         s_pred_cause = torch.cat([s, pred_cause], 2)
-        x_pos, pred_pos = self.get_emotion_prediction(s_pred_cause)
+        x_pos, pred_pos = self.get_emotion_prediction(s_pred_cause,adj)
         pred_pair = self.get_pair_prediction(x_pos, x_cause, distance)
         return pred_pos, pred_cause, pred_pair
 
@@ -154,9 +161,9 @@ def train_and_eval(Model, pos_cause_criterion, pair_criterion, optimizer):
         #################################### TRAIN/TEST DATA ####################################
         train_file_name = 'fold{}_train.txt'.format(fold)
         val_file_name = 'fold{}_val.txt'.format(fold)
-        tr_y_position, tr_y_cause, tr_y_pair, tr_x, tr_sen_len, tr_doc_len, tr_distance = load_data_pair(
+        tr_y_position, tr_y_cause, tr_y_pair, tr_x, tr_sen_len, tr_doc_len, tr_distance, tr_adj = load_data_pair(
                         './data_combine_eng/'+train_file_name, word_id_mapping, max_doc_len, max_sen_len)
-        val_y_position, val_y_cause, val_y_pair, val_x, val_sen_len, val_doc_len, val_distance = \
+        val_y_position, val_y_cause, val_y_pair, val_x, val_sen_len, val_doc_len, val_distance, val_adj = \
             load_data_pair('./data_combine_eng/'+val_file_name, word_id_mapping, max_doc_len, max_sen_len)
         max_f1_cause, max_f1_pos, max_f1_pair, max_f1_avg = [-1.] * 4
         #################################### LOOP OVER EPOCHS ####################################
@@ -164,12 +171,12 @@ def train_and_eval(Model, pos_cause_criterion, pair_criterion, optimizer):
             step = 1
             #################################### GET BATCH DATA ####################################
             for train, _ in get_batch_data_pair(
-                tr_x, tr_sen_len, tr_doc_len, tr_y_position, tr_y_cause, tr_y_pair, tr_distance, batch_size):
+                tr_x, tr_sen_len, tr_doc_len, tr_y_position, tr_y_cause, tr_y_pair, tr_distance, tr_adj, batch_size):
                 tr_x_batch, tr_sen_len_batch, tr_doc_len_batch, tr_true_y_pos, tr_true_y_cause, \
-                tr_true_y_pair, tr_distance_batch = train
+                tr_true_y_pair,tr_adj_batch, tr_distance_batch = train
                 Model.train()
                 tr_pred_y_pos, tr_pred_y_cause, tr_pred_y_pair = Model(embedding_lookup(word_embedding, \
-                tr_x_batch), embedding_lookup(pos_embedding, tr_distance_batch))
+                tr_x_batch), embedding_lookup(pos_embedding, tr_distance_batch),tr_adj_batch)
                 ############################## LOSS FUNCTION AND OPTIMIZATION ##############################
                 loss = pos_cause_criterion(tr_true_y_pos, tr_pred_y_pos, tr_doc_len_batch)*pos + \
                 pos_cause_criterion(tr_true_y_cause, tr_pred_y_cause, tr_doc_len_batch)*cause + \
@@ -195,7 +202,7 @@ def train_and_eval(Model, pos_cause_criterion, pair_criterion, optimizer):
             with torch.no_grad():
                 Model.eval()
                 val_pred_y_pos, val_pred_y_cause, val_pred_y_pair = Model(embedding_lookup(word_embedding, \
-                val_x), embedding_lookup(pos_embedding, val_distance))
+                val_x), embedding_lookup(pos_embedding, val_distance), val_adj)
 
                 loss = pos_cause_criterion(val_y_position, val_pred_y_pos, val_doc_len)*pos + \
                 pos_cause_criterion(val_y_cause, val_pred_y_cause, val_doc_len)*cause + \
@@ -275,7 +282,8 @@ def main():
     print(Model)
     x = torch.rand([batch_size, max_doc_len, max_sen_len, embedding_dim]).to(device)
     distance = torch.rand([batch_size, max_doc_len * max_doc_len, embedding_dim_pos]).to(device)
-    pred_pos, pred_cause, pred_pair = Model(x, distance)
+    adj = torch.zeros([batch_size, max_doc_len,  max_doc_len])
+    pred_pos, pred_cause, pred_pair = Model(x, distance,adj)
     print("Random i/o shapes x: {}, distance: {}, y_pos: {}, y_cause: {}, y_pair: {}".format(
         x.shape, distance.shape, pred_pos.shape, pred_cause.shape, pred_pair.shape))
     pos_cause_criterion = ce_loss_aux(); pair_criterion = ce_loss_pair(diminish_factor)

@@ -6,7 +6,8 @@ import torch
 from torch import nn
 from torch import optim
 from torch.nn import functional as F
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = "cpu"
 
 ############################################ EMBEDDING LOOKUP ################################################
 def embedding_lookup(word_embedding, x):
@@ -136,15 +137,16 @@ def batch_index(length, batch_size, test=False):
         if test == False and len(ret) < batch_size : break
         yield ret
 
-def get_batch_data_pair(x, sen_len, doc_len, y_position, y_cause, y_pair, distance, batch_size, test=False):
+def get_batch_data_pair(x, sen_len, doc_len, y_position, y_cause, y_pair, distance,adj, batch_size, test=False):
     for index in batch_index(len(y_cause), batch_size, test):
         feed_list = [x[index], sen_len[index], doc_len[index], y_position[index], y_cause[index], \
-        y_pair[index], distance[index]]
+        y_pair[index], adj[index], distance[index]]
         yield feed_list, len(index)
 
 ###################################### ACCURACY, PRECISION, RECALL, F1 #######################################
 def metrics(y_true, y_pred):
-    y_true = np.array(y_true); y_pred = np.array(y_pred)
+    y_true = np.array(y_true);
+    y_pred = np.array([item.cpu() for item in y_pred]);
     true_pos = np.sum((y_true==1.) & (y_pred==1.))
     true_neg = np.sum((y_true==0.) & (y_pred==0.))
     false_pos = np.sum((y_true==0.) & (y_pred==1.))

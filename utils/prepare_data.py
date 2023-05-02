@@ -1,4 +1,5 @@
 ############################################ IMPORT ##########################################################
+import pickle
 import sys, os
 import numpy as np
 from sklearn.metrics import precision_score, recall_score, f1_score
@@ -12,7 +13,7 @@ def load_w2v(embedding_dim, embedding_dim_pos, train_file_path, embedding_path):
     print('\nload embedding...')
 
     words = []
-    inputFile1 = open(train_file_path, 'r')
+    inputFile1 = open(train_file_path, 'r',encoding='utf-8')
     for line in inputFile1.readlines():
         line = line.strip().split(',')
         emotion, clause = line[2], line[-1]
@@ -24,7 +25,7 @@ def load_w2v(embedding_dim, embedding_dim_pos, train_file_path, embedding_path):
     word_idx_rev = dict((k + 1, c) for k, c in enumerate(words)) # Each word and its position
 
     w2v = {}
-    inputFile2 = open(embedding_path, 'r')
+    inputFile2 = open(embedding_path, 'r',encoding='utf-8')
     inputFile2.readline()
     for line in inputFile2.readlines():
         line = line.strip().split(' ')
@@ -56,10 +57,14 @@ def load_w2v(embedding_dim, embedding_dim_pos, train_file_path, embedding_path):
 
 ############################################ LOAD DATA PAIR STEP ##############################################
 def load_data_pair(input_file, word_idx, max_doc_len = 75, max_sen_len = 45):
+    adj = []
+    adj_raw = []
+    with open('./dataset.matrix','rb') as f:
+        adj_raw = pickle.load(f)
     print('load data_file: {}'.format(input_file))
     pair_id_all, y_position, y_cause, y_pair, x, sen_len, doc_len, distance = [], [], [], [], [], [], [], []
     n_cut = 0
-    inputFile = open(input_file, 'r')
+    inputFile = open(input_file, 'r',encoding='utf-8')
     while True:
         line = inputFile.readline()
         if line == '': break
@@ -113,7 +118,8 @@ def load_data_pair(input_file, word_idx, max_doc_len = 75, max_sen_len = 45):
                     y_pair_tmp[i*max_doc_len+j][0] = 1; y_pair_tmp[i*max_doc_len+j][1] = 0
                 # Find the distance between the clauses, and use the same embedding beyond 10 clauses
                 distance_tmp[i*max_doc_len+j] = min(max(j-i+100, 90), 110)
-
+        adj_original = np.array(adj_raw[doc_id - 1])
+        adj_temp = np.pad(adj_original,[0,max_doc_len - adj_original.shape[0]],mode='constant',constant_values=0)
         y_position.append(y_position_tmp)
         y_cause.append(y_cause_tmp)
         y_pair.append(y_pair_tmp)
@@ -121,12 +127,13 @@ def load_data_pair(input_file, word_idx, max_doc_len = 75, max_sen_len = 45):
         sen_len.append(sen_len_tmp)
         doc_len.append(d_len)
         distance.append(distance_tmp)
+        adj.append(adj_temp)
 
-    y_position, y_cause, y_pair, x, sen_len, doc_len, distance = map(torch.tensor, \
-    [y_position, y_cause, y_pair, x, sen_len, doc_len, distance])
+    y_position, y_cause, y_pair, x, sen_len, doc_len, distance, adj = map(torch.tensor, \
+    [y_position, y_cause, y_pair, x, sen_len, doc_len, distance, adj])
 
     for var in ['y_position', 'y_cause', 'y_pair', 'x', 'sen_len', 'doc_len', 'distance']:
         print('{}.shape {}'.format( var, eval(var).shape ))
     print('n_cut {}'.format(n_cut))
     print('load data done!\n')
-    return y_position, y_cause, y_pair, x, sen_len, doc_len, distance
+    return y_position, y_cause, y_pair, x, sen_len, doc_len, distance, adj.float()
