@@ -77,17 +77,19 @@ class E2E_PextC(nn.Module):
         output(s) shape: [batch_size, doc_len, 2 * n_hidden], [batch_size, doc_len, n_class]
         '''
         x_context, hidden_states = self.pos_bilstm(x.float())
+        # x_context_gc = x_context
         x_context_gc = self.gc1(x_context,adj)
+        x_context_gc_cat = torch.div(torch.add(x_context,x_context_gc),2)
 
         # x_context is of shape (batch_size, max_doc_len, 2 * n_hidden)
-        x = x_context_gc.reshape(-1, 2 * self.n_hidden)
+        x = x_context_gc_cat.reshape(-1, 2 * self.n_hidden)
         x = self.dropout2(x)
         # x is of shape (batch_size * max_doc_len, 2 * n_hidden)
         pred_pos = F.softmax(self.pos_linear(x), dim = -1)
         # pred_pos is of shape (batch_size * max_doc_len, n_class)
         pred_pos = pred_pos.reshape(-1, self.doc_len, self.n_class)
         # pred_pos is of shape (batch_size * max_doc_len, n_class)
-        return x_context_gc, pred_pos
+        return x_context_gc_cat, pred_pos
 
     def get_cause_prediction(self, x, adj):
         '''
@@ -95,16 +97,19 @@ class E2E_PextC(nn.Module):
         output(s) shape: [batch_size, doc_len, 2 * n_hidden], [batch_size, doc_len, n_class]
         '''
         x_context, hidden_states = self.cause_bilstm(x.float())
+        # x_context_gc = x_context
         x_context_gc = self.gc1(x_context,adj)
+        x_context_gc_cat = torch.div(torch.add(x_context,x_context_gc),2)
+
         # x_context is of shape (batch_size, max_doc_len, 2 * n_hidden)
-        x = x_context_gc.reshape(-1, 2 * self.n_hidden)
+        x = x_context_gc_cat.reshape(-1, 2 * self.n_hidden)
         x = self.dropout2(x)
         # x is of shape (batch_size * max_doc_len, 2 * n_hidden)
         pred_cause = F.softmax(self.cause_linear(x), dim = -1)
         # pred_pos is of shape (batch_size * max_doc_len, n_class)
         pred_cause = pred_cause.reshape(-1, self.doc_len, self.n_class)
         # pred_pos is of shape (batch_size * max_doc_len, n_class)
-        return x_context_gc, pred_cause
+        return x_context_gc_cat, pred_cause
 
     def get_pair_prediction(self, x1, x2, distance):
         '''
